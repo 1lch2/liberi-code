@@ -75,7 +75,7 @@ export function App() {
 
   async function handleSubmit(value: string) {
     const text = value.trim();
-    if (!text || busy) return;
+    if (!text || busy || session.loadingConfig) return;
     if (!agent || !connection) {
       setEntries(previous => [
         ...previous,
@@ -177,13 +177,15 @@ export function App() {
         {session.loadingConfig && <Text dimColor>正在加载配置与模型清单...</Text>}
         {compactStatus && <Text dimColor>{compactStatus}</Text>}
         {session.error && <Text color="yellow">{session.error} 使用 /provider 重新连接。</Text>}
-        <Toolbar
-          model={connection?.llm.model.name}
-          effort={connection?.llm.activeReasoningEffort}
-          contextWindow={connection?.llm.model.contextWindow}
-          permission={session.settings.permission}
-          usage={tokenUsage}
-        />
+        {!session.loadingConfig && (
+          <Toolbar
+            model={connection?.llm.model.name}
+            effort={connection?.llm.activeReasoningEffort}
+            contextWindow={connection?.llm.model.contextWindow}
+            permission={session.settings.permission}
+            usage={tokenUsage}
+          />
+        )}
       </Box>
     </Box>
   );

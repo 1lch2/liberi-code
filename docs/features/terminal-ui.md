@@ -26,7 +26,7 @@
 
 新增命令时在应用组装入口提供名称、说明和执行闭包即可，无需修改通用协议、分发器或输入组件。
 
-未连接时 `Toolbar` 显示“未连接任何模型”及 `/provider` 提示，普通消息不会请求模型。`/provider` 与 `/model` 打开列表页，当前回合结束前禁止确认切换；成功后返回聊天，失败保留原连接。连接与模型选择详见[Provider](providers.md)。
+启动配置与模型清单加载期间仅显示加载提示，暂不展示 `Toolbar`，普通消息提交被忽略；加载完成且未连接时，`Toolbar` 才显示“未连接任何模型”及 `/provider` 提示，普通消息不会请求模型。`/provider` 与 `/model` 打开列表页，当前回合结束前禁止确认切换；成功后返回聊天，失败保留原连接。连接与模型选择详见[Provider](providers.md)。
 
 `TextInput.onSubmit` → `handleSubmit` → [BaseAgent.send](agent-loop.md)（由 MainAgent 继承）→ `handleUpdate` → 展示条目或用量状态 → `Message`。空白输入和忙碌时的提交被忽略，执行结束时在 `finally` 中恢复忙碌状态。
 

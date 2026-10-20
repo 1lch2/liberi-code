@@ -6,6 +6,7 @@
 
 ## 入口与关键实现
 
+- [package.json](../../package.json)：使用 Ink 6.8 与 React 19；满屏页面返回较短页面时，由 Ink 跟踪上一帧高度并同步重绘状态，清理旧画面。
 - [src/ui/App.tsx](../../src/ui/App.tsx)：`App` 管理输入、展示条目、忙碌状态、Token 用量和终端行列数；提交时调用 Agent，订阅并清理 stdout 的 `resize` 监听；向消息传递扣除左右 padding 后的可用列宽。
 - [src/ui/ProviderList.tsx](../../src/ui/ProviderList.tsx)：独立服务商选择和凭据输入界面，由 `/provider` 切换进入；状态和连接归属见[Provider](providers.md)。聊天组件保持挂载，切回时保留消息和历史。
 - [src/ui/Toolbar.tsx](../../src/ui/Toolbar.tsx)：`Toolbar` 接收当前 `OpenAILLM.model.name`、`OpenAILLM.activeReasoningEffort`、`contextWindow`、权限模式和 `TokenUsage`；在模型名右侧展示实际生效的推理强度，再展示权限模式；右侧展示当前上下文用量与容量，以及缓存用量和命中率。未显式选择时显示按模型计算的默认档位，不支持推理时不追加。`formatContextWindow` 使用千进制 k/M 整数显示上下文长度，未知时显示“未知”；不依赖 App 或 Agent，窄终端可换行。名称、推理能力和上下文来自 models.dev 元信息，未匹配时名称使用 ID。

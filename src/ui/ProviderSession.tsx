@@ -69,7 +69,7 @@ export function ProviderSession({ children, paths = STORAGE_PATHS }: ProviderSes
   const [view, setView] = useState<ProviderSessionState['view']>('chat');
   const [loadingConfig, setLoadingConfig] = useState(true);
   const [error, setError] = useState<string>();
-  const agentRef = useRef<MainAgent>();
+  const agentRef = useRef<MainAgent | undefined>(undefined);
 
   function activate(next: ProviderConnection, permission = settings.permission) {
     if (agentRef.current) agentRef.current.setLLM(next.llm);

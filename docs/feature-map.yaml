@@ -194,6 +194,8 @@ features:
         Ink,
         React,
         TUI,
+        重绘,
+        文字残留,
         App,
         Message,
         Markdown,

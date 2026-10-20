@@ -98,13 +98,34 @@ function connectionError(error: unknown, stage: string): Error {
   return new Error(`${stage}失败，请检查网络及服务端状态。`);
 }
 
+interface ModelsDevReasoningOption {
+  type?: string;
+  values?: unknown;
+}
+
 interface ModelsDevModel {
   name: string;
   limit?: { context?: number; input?: number; output?: number };
+  reasoning?: boolean;
+  reasoning_options?: ModelsDevReasoningOption[];
 }
 
 function tokenLimit(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+/** 提取 models.dev 的推理强度档位；无档位但支持开关时使用 on/off。 */
+function modelEffort(model: ModelsDevModel | undefined): string[] {
+  if (model?.reasoning !== true) return [];
+  const options = Array.isArray(model.reasoning_options) ? model.reasoning_options : [];
+  const effort = options.find(option => option?.type === 'effort');
+  const values = Array.isArray(effort?.values)
+    ? effort.values
+        .map(value => (value === null ? 'off' : typeof value === 'string' ? value.trim() : ''))
+        .filter(value => value.length > 0)
+    : [];
+  if (values.length) return [...new Set(values)];
+  return options.some(option => option?.type === 'toggle') ? ['on', 'off'] : [];
 }
 
 async function fetchModelInfo(provider: ProviderDefinition, ids: string[]): Promise<ModelInfo[]> {
@@ -131,6 +152,8 @@ async function fetchModelInfo(provider: ProviderDefinition, ids: string[]): Prom
     return {
       id,
       name: typeof model?.name === 'string' && model.name ? model.name : id,
+      reasoning: model?.reasoning,
+      effort: model ? modelEffort(model) : undefined,
       contextWindow: tokenLimit(model?.limit?.context),
       maxInputTokens: tokenLimit(model?.limit?.input),
       maxOutputTokens: tokenLimit(model?.limit?.output),

@@ -7,13 +7,13 @@
 ## 入口与关键实现
 
 - [src/index.tsx](../../src/index.tsx)：使用 Ink 渲染 `ProviderSession` 包裹的 `App`；不加载 `.env`，也不检查模型、端点或密钥环境变量。
-- [src/ui/ProviderSession.tsx](../../src/ui/ProviderSession.tsx)：首次启动允许未连接；有本地已选连接时使用保存的端点、模型和凭据初始化，并在启动时刷新一次模型清单；当前模型不在新清单时切换到第一个模型，刷新失败回退本地缓存，详细保存和连接边界见[Provider](providers.md)。
+- [src/ui/ProviderSession.tsx](../../src/ui/ProviderSession.tsx)：首次启动允许未连接；有本地已选连接时使用保存的端点、模型、凭据和推理强度初始化，并在启动时刷新一次模型清单、同步推理元信息；当前模型不在新清单时切换到第一个模型并清空推理强度，刷新成功后校验已保存档位，失效时清空并保存；刷新失败回退本地缓存，详细保存和连接边界见[Provider](providers.md)。
 - [package.json](../../package.json)：定义 Node.js 最低版本、开发脚本和 `liberi-code` CLI 入口。
 - [scripts/build.mjs](../../scripts/build.mjs)：使用 esbuild 将入口打包为 Node.js ESM 文件 `dist/liberi-code.js`，保留外部包依赖并添加 CLI shebang。
 
 ## 调用链与边界
 
-`npm start` → `tsx src/index.tsx` → `render(<ProviderSession><App /></ProviderSession>)` → 读取本地已选连接并初始化适配器与 Agent，或进入未连接状态。启动不执行聊天连接校验，但会刷新模型清单；当前模型不在新清单时回退首个模型，刷新失败回退本地缓存。
+`npm start` → `tsx src/index.tsx` → `render(<ProviderSession><App /></ProviderSession>)` → 读取本地已选连接并初始化适配器与 Agent，或进入未连接状态。启动不执行聊天连接校验，但会刷新模型清单并同步推理元信息；当前模型不在新清单时回退首个模型，刷新成功后失效的推理强度会被清空，刷新失败回退本地缓存。
 
 启动时使用 `process.cwd()` 作为 Agent 工作目录；输出为 TTY 时清除可见内容和历史缓冲区。Ink 退出后入口等待卸载完成，暂停 stdin、恢复非 raw 输入模式，清除 TUI 可见内容和历史缓冲区并恢复光标；等待 stdout 写入完成后结束 CLI 进程，不等待残留请求或活动句柄。该流程共用于 `/quit` 和 Ctrl+C，非 TTY 输出不写入清屏序列。进程退出不保证已启动的外部子进程或远端任务被取消。模型连接见[模型适配](model-adapter.md)，终端渲染见[终端交互](terminal-ui.md)。
 

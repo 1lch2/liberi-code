@@ -27,7 +27,8 @@ export interface ProviderSessionState {
     | 'config'
     | 'subagent-models'
     | 'review-models'
-    | 'permissions';
+    | 'permissions'
+    | 'effort';
   loadingConfig: boolean;
   error?: string;
   openProviders: () => void;
@@ -36,6 +37,7 @@ export interface ProviderSessionState {
   openSubagentModels: () => void;
   openReviewModels: () => void;
   openPermissions: () => void;
+  openEffort: () => void;
   closeSelection: () => void;
   loadModels: () => Promise<ModelCatalog>;
   createCompactLLM: () => Promise<LLM | undefined>;
@@ -43,6 +45,7 @@ export interface ProviderSessionState {
   selectSubagentModel: (model: string) => Promise<void>;
   selectReviewModel: (model: string) => Promise<void>;
   selectPermission: (permission: PermissionMode) => Promise<void>;
+  selectReasoningEffort: (effort: string) => Promise<void>;
   removeProvider: (providerId: string) => Promise<void>;
   connect: (provider: ProviderDefinition, apiKey: string, baseURL?: string) => Promise<void>;
 }
@@ -109,17 +112,33 @@ export function ProviderSession({ children, paths = STORAGE_PATHS }: ProviderSes
           catalog ??= await loadModelCatalog(selected, paths);
           if (cancelled) return;
           let options = selected;
+          let optionsSaveError: string | undefined;
           if (
             refreshed &&
             catalog?.models.length &&
             !catalog.models.some(model => model.id === options.model)
           ) {
             // 当前模型可能已从服务商清单移除（例如预览版下线），回退到第一个可用模型并保存选择。
-            options = { ...options, model: catalog.models[0]!.id };
+            options = {
+              ...options,
+              model: catalog.models[0]!.id,
+              reasoningEffort: undefined,
+            };
+            optionsSaveError = '当前模型已不在模型清单中，回退后的模型选择保存失败。';
+          }
+          if (refreshed && options.reasoningEffort) {
+            const model = catalog?.models.find(item => item.id === options.model);
+            if (!model?.effort?.includes(options.reasoningEffort)) {
+              // 模型或服务商更新后档位可能失效，回退到服务商默认值。
+              options = { ...options, reasoningEffort: undefined };
+              optionsSaveError ??= '已保存的推理强度不再可用，清理后的配置保存失败。';
+            }
+          }
+          if (optionsSaveError) {
             try {
               await saveProviderConnection(options, paths);
             } catch {
-              if (!cancelled) setError('当前模型已不在模型清单中，回退后的模型选择保存失败。');
+              if (!cancelled) setError(optionsSaveError);
             }
             if (cancelled) return;
             setSettings(previous => ({
@@ -129,6 +148,10 @@ export function ProviderSession({ children, paths = STORAGE_PATHS }: ProviderSes
               ),
             }));
           }
+          const currentModel = catalog?.models.find(model => model.id === options.model) ?? {
+            id: options.model,
+            name: options.model,
+          };
           activate(
             {
               options,
@@ -136,10 +159,8 @@ export function ProviderSession({ children, paths = STORAGE_PATHS }: ProviderSes
               llm: new OpenAILLM({
                 apiKey: options.apiKey,
                 baseURL: options.baseURL,
-                model: catalog?.models.find(model => model.id === options.model) ?? {
-                  id: options.model,
-                  name: options.model,
-                },
+                model: currentModel,
+                reasoningEffort: options.reasoningEffort,
               }),
             },
             saved.permission
@@ -209,7 +230,7 @@ export function ProviderSession({ children, paths = STORAGE_PATHS }: ProviderSes
     if (model !== connection.options.model) {
       const catalog = await loadModels();
       const selected = catalog.models.find(item => item.id === model)!;
-      const options = { ...connection.options, model };
+      const options = { ...connection.options, model, reasoningEffort: undefined };
       try {
         await saveProviderConnection(options, paths);
       } catch {
@@ -219,7 +240,11 @@ export function ProviderSession({ children, paths = STORAGE_PATHS }: ProviderSes
         ...connection,
         options,
         catalog,
-        llm: new OpenAILLM({ ...options, model: selected }),
+        llm: new OpenAILLM({
+          apiKey: options.apiKey,
+          baseURL: options.baseURL,
+          model: selected,
+        }),
       });
       setSettings(previous => ({
         ...previous,
@@ -241,7 +266,13 @@ export function ProviderSession({ children, paths = STORAGE_PATHS }: ProviderSes
     }
     const catalog = await loadModels();
     const model = catalog.models.find(item => item.id === settings.subagentModel);
-    return model ? new OpenAILLM({ ...connection.options, model }) : undefined;
+    return model
+      ? new OpenAILLM({
+          apiKey: connection.options.apiKey,
+          baseURL: connection.options.baseURL,
+          model,
+        })
+      : undefined;
   }
 
   async function removeProvider(providerId: string) {
@@ -261,8 +292,16 @@ export function ProviderSession({ children, paths = STORAGE_PATHS }: ProviderSes
         await saveModelCatalog(options, catalog, paths);
       }
       const model = catalog.models[0]!;
-      const selected = { ...options, model: model.id };
-      next = { options: selected, catalog, llm: new OpenAILLM({ ...selected, model }) };
+      const selected = { ...options, model: model.id, reasoningEffort: undefined };
+      next = {
+        options: selected,
+        catalog,
+        llm: new OpenAILLM({
+          apiKey: selected.apiKey,
+          baseURL: selected.baseURL,
+          model,
+        }),
+      };
     }
     const updated: Settings = {
       ...saved,
@@ -311,6 +350,28 @@ export function ProviderSession({ children, paths = STORAGE_PATHS }: ProviderSes
     setView('config');
   }
 
+  async function selectReasoningEffort(effort: string) {
+    if (!connection) throw new Error('请先连接服务商。');
+    if (!connection.llm.model.effort?.includes(effort)) {
+      throw new Error('当前模型不支持该推理强度。');
+    }
+    const options = { ...connection.options, reasoningEffort: effort };
+    try {
+      await saveProviderConnection(options, paths);
+    } catch {
+      throw new Error('推理强度保存失败，请检查本地配置文件。');
+    }
+    connection.llm.setReasoningEffort(effort);
+    activate({ ...connection, options });
+    setSettings(previous => ({
+      ...previous,
+      connections: previous.connections.map(item =>
+        item.providerId === options.providerId ? options : item
+      ),
+    }));
+    setView('chat');
+  }
+
   return (
     <ProviderSessionContext.Provider
       value={{
@@ -327,6 +388,7 @@ export function ProviderSession({ children, paths = STORAGE_PATHS }: ProviderSes
         selectSubagentModel,
         selectReviewModel,
         selectPermission,
+        selectReasoningEffort,
         removeProvider,
         openProviders: () => setView('providers'),
         openModels: () => setView('models'),
@@ -334,6 +396,7 @@ export function ProviderSession({ children, paths = STORAGE_PATHS }: ProviderSes
         openSubagentModels: () => setView('subagent-models'),
         openReviewModels: () => setView('review-models'),
         openPermissions: () => setView('permissions'),
+        openEffort: () => setView('effort'),
         closeSelection: () => setView('chat'),
       }}
     >

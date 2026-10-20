@@ -1,7 +1,7 @@
 path_base: repository-root
 scope: >-
   覆盖当前 CLI 的启动与本地构建、Agent 对话与工具循环、模型接口适配、
-  Provider 连接、Agent 设置、终端交互、文件读写、命令执行、网页抓取及 GitHub Release 发布主链路。内容基于源码核对，用于定位实现，
+  推理强度配置、Provider 连接、Agent 设置、终端交互、文件读写、命令执行、网页抓取及 GitHub Release 发布主链路。内容基于源码核对，用于定位实现，
   不代表真实模型端点、终端或跨平台行为已经运行验收。
 not_yet_mapped:
   - VSCode 调试配置
@@ -71,6 +71,13 @@ features:
         Chat Completions,
         模型,
         ModelInfo,
+        reasoning,
+        effort,
+        reasoning_effort,
+        thinking,
+        setReasoningEffort,
+        推理能力,
+        推理强度,
         contextWindow,
         上下文长度,
         非流式,
@@ -103,6 +110,12 @@ features:
         models.dev,
         模型名称,
         上下文限制,
+        reasoning,
+        effort,
+        reasoningEffort,
+        /effort,
+        推理强度,
+        on/off,
         启动刷新,
         模型名回退,
         首个模型回退,
@@ -135,6 +148,8 @@ features:
         reviewModel,
         命令权限审查,
         permission,
+        reasoningEffort,
+        推理强度,
         workspace-write,
         auto-review,
         read-only,
@@ -147,6 +162,31 @@ features:
       ]
     doc: docs/features/settings.md
     entrypoints: [src/core/settings.ts, src/ui/ConfigList.tsx, src/ui/PermissionList.tsx]
+  - id: effort
+    name: 推理强度配置与 /effort
+    keywords:
+      [
+        effort,
+        /effort,
+        reasoningEffort,
+        reasoning_effort,
+        thinking,
+        推理强度,
+        推理档位,
+        默认档位,
+        档位,
+        on/off,
+        开启推理,
+      ]
+    doc: docs/features/effort.md
+    entrypoints:
+      [
+        src/ui/EffortList.tsx,
+        src/hook/useCommands.ts,
+        src/ui/ProviderSession.tsx,
+        src/core/settings.ts,
+        src/openai-llm.ts,
+      ]
   - id: terminal-ui
     name: 终端输入、消息展示与布局
     keywords:
@@ -168,6 +208,9 @@ features:
         状态栏,
         工具栏,
         Toolbar,
+        effort,
+        /effort,
+        推理强度,
         缓存命中率,
         斜杠命令,
         slash,

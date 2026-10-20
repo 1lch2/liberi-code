@@ -2,13 +2,13 @@
 
 [返回功能索引](../feature-map.yaml)
 
-覆盖状态：已核对注册、选择、校验、保存、删除、启动模型清单刷新及本地启动初始化主链路，并通过本地 HTTP 服务与 Ink 模拟终端的 E2E 检查。最近核对：2026-10-20。未使用各厂商真实 API Key 验收全部端点。
+覆盖状态：已核对注册、选择、校验、保存、删除、启动模型清单刷新、推理元信息同步、推理强度持久化及本地启动初始化主链路，并通过本地 HTTP 服务与 Ink 模拟终端的 E2E 检查。最近核对：2026-10-20。未使用各厂商真实 API Key 验收全部端点。
 
 ## 入口与关键实现
 
-- [src/core/provider.ts](../../src/core/provider.ts)：统一供应商清单与连接实现。`PROVIDERS` 使用 models.dev 的内置供应商 ID，保留中文标签与现有 Chat Completions 地址；自定义兼容端点使用本地 ID `openai-compatible`。`fetchModelCatalog` 获取服务商可用模型，再从 models.dev 补充名称与上下文限制；`connectProvider` 验证首个模型并返回连接供会话层保存和激活，本文件不读写本地配置。
-- [src/hook/useCommands.ts](../../src/hook/useCommands.ts)：应用命令列表注册 `/provider` 和 `/model`，将会话的 `openProviders`、`openModels` 绑定为执行回调；`App` 将列表传给输入组件，由 [src/core/commands.ts](../../src/core/commands.ts) 通用分发器匹配执行。
-- [src/ui/ProviderSession.tsx](../../src/ui/ProviderSession.tsx)：`ProviderSession` 管理连接、选项和页面状态；主动连接时调用 `connectProvider` 校验，依次保存模型缓存与连接后再激活。启动读取用户目录配置后，对已选连接主动调用 `fetchModelCatalog` 刷新服务商模型清单并同步 models.dev 名称与上下文限制，成功后覆盖本地缓存；如果刷新后的清单不包含当前模型，自动切换到清单中的第一个模型并保存连接。刷新失败时回退本地缓存并在界面提示错误，缓存也未命中时以模型 ID 作为展示名，上下文限制保持未知。缺少已选连接时保持未连接状态。
+- [src/core/provider.ts](../../src/core/provider.ts)：统一供应商清单与连接实现。`PROVIDERS` 使用 models.dev 的内置供应商 ID，保留中文标签与现有 Chat Completions 地址；自定义兼容端点使用本地 ID `openai-compatible`。`fetchModelCatalog` 获取服务商可用模型，再从 models.dev 补充名称、上下文限制、推理能力与强度选项；`connectProvider` 验证首个模型并返回连接供会话层保存和激活，本文件不读写本地配置。
+- [src/hook/useCommands.ts](../../src/hook/useCommands.ts)：应用命令列表注册 `/provider`、`/model` 和 `/effort`，将会话的 `openProviders`、`openModels`、`openEffort` 绑定为执行回调；`App` 将列表传给输入组件，由 [src/core/commands.ts](../../src/core/commands.ts) 通用分发器匹配执行。
+- [src/ui/ProviderSession.tsx](../../src/ui/ProviderSession.tsx)：`ProviderSession` 管理连接、选项和页面状态；主动连接时调用 `connectProvider` 校验，依次保存模型缓存与连接后再激活。启动读取用户目录配置后，对已选连接主动调用 `fetchModelCatalog` 刷新服务商模型清单并同步 models.dev 名称、上下文限制与推理元信息，成功后覆盖本地缓存；如果刷新后的清单不包含当前模型，自动切换到清单中的第一个模型并保存连接。刷新成功后，如果已保存的推理强度不在当前模型的档位中，会清空该值并保存连接；刷新失败时回退本地缓存并在界面提示错误，缓存也未命中时以模型 ID 作为展示名，上下文限制保持未知。缺少已选连接时保持未连接状态。
 - [src/hook/useProviderSession.ts](../../src/hook/useProviderSession.ts)：`useProviderSession` 提供共享状态读取入口，Hook 与 UI 组件分别归属 `src/hook` 和 `src/ui`。
 - [src/ui/ProviderList.tsx](../../src/ui/ProviderList.tsx)：中文标签作为 `label`、Provider ID 作为灰色 `comment`，右侧 `value` 显示“已连接”或“已配置”，未配置项留空。上下键选择、回车展开输入、列表状态双按 D 删除配置；内置项输入 API Key，自定义项先输入地址。Key 使用掩码显示，连接失败保留页面供重试，Esc 返回列表或聊天。
 - [src/ui/List.tsx](../../src/ui/List.tsx)：Provider、模型和设置页面共用的受控列表，支持标签、可选说明和当前值，负责上下键循环导航与回车确认；布局见[设置配置](settings.md)。
@@ -28,17 +28,17 @@
 
 `/model` → `ModelList` → `ProviderSession.loadModels`：优先使用当前连接的内存清单，再读取磁盘缓存；缓存缺失或为空时调用 `fetchModelCatalog` 查询并保存。读取后同步当前适配器的模型元信息，保持原适配器与当前用量。启动仍只读本地文件；未连接时提示先使用 `/provider`，查询失败可 Esc 返回后重新进入。
 
-上下键选择，回车调用 `ProviderSession.selectModel`：先保存选中模型，再替换当前适配器和连接状态，返回聊天；持久化失败时保留原连接与页面，可再次回车重试。确认当前模型只返回聊天，不重置连接或用量。Esc 取消不改变所选模型。App 和 Agent 保持挂载，消息与对话历史继续保留。
+上下键选择，回车调用 `ProviderSession.selectModel`：先保存选中模型，再替换当前适配器和连接状态，返回聊天；切换模型会清空旧模型的显式推理强度，随后按新模型默认档位生效。持久化失败时保留原连接与页面，可再次回车重试。确认当前模型只返回聊天，不重置连接或用量。Esc 取消不改变所选模型。App 和 Agent 保持挂载，消息与对话历史继续保留。
 
 列表沿用 Provider 返回或文档记录的模型清单，不逐个探测模型权限；切换模型不发送额外校验消息，实际调用权限和兼容性由下一次聊天请求确认。
 
 ## 模型元信息
 
-内置供应商按 Provider ID 与模型 ID 精确匹配 [models.dev API](https://models.dev/api.json)，同步 `name` 与 `limit.context/input/output`，映射到 [ModelInfo](../../src/types.ts) 的展示名及上下文、最大输入、最大输出限制。未匹配的模型保留 ID 作为名称，缺失或非正数限制保持未知；自定义兼容端点不查询 models.dev，也不推测模型归属。同步请求失败会报告错误，不把失败当成成功缓存。
+内置供应商按 Provider ID 与模型 ID 精确匹配 [models.dev API](https://models.dev/api.json)，同步 `name`、`reasoning`、`reasoning_options` 与 `limit.context/input/output`，映射到 [ModelInfo](../../src/types.ts) 的展示名、推理能力、强度选项及上下文、最大输入、最大输出限制。`effort` 优先读取 `reasoning_options` 中 `type: "effort"` 的 `values`；没有强度档位但存在 `toggle` 时使用 `on/off`，其他情况为空数组，`null` 档位按 `off` 处理。未匹配的模型保留 ID 作为名称，推理能力与强度保持未知，缺失或非正数限制保持未知；自定义兼容端点不查询 models.dev，也不推测模型归属。同步请求失败会报告错误，不把失败当成成功缓存。
 
 对应 ID：MiniMax 使用 `minimax-cn` / `minimax-cn-coding-plan`，智谱使用 `zhipuai` / `zhipuai-coding-plan`，小米使用 `xiaomi` / `xiaomi-token-plan-cn`，Kimi 使用 `moonshotai-cn` / `kimi-code-plan-cn`；DeepSeek 与 OpenAI 仍为 `deepseek`、`openai`。models.dev 只提供元信息，不替换现有 API 地址或可用模型清单。
 
-当前模型元信息通过 `OpenAILLM.model` 传给 `BaseAgent.model`，切换模型时随适配器一起更新；Toolbar 显示同一份模型名称。
+当前模型元信息通过 `OpenAILLM.model` 传给 `BaseAgent.model`，切换模型时随适配器一起更新；Toolbar 显示同一份模型名称和实际生效的推理强度，未显式选择时显示按模型计算的默认档位。档位选择与请求映射见[推理强度](effort.md)。
 
 ## 内置清单与官方来源
 
@@ -64,8 +64,8 @@ GLM 官方 OpenAPI 没有公开模型列表定义。仅在标准接口返回 404
 
 ## 保存与缓存边界
 
-- `~/.liberi/settings.json` 统一保存服务商 ID、端点、选中模型、API Key、当前选中的服务商和 Agent 设置；删除只移除目标配置并更新自动选中的供应商与模型。存储位置见[设置配置](settings.md)。
-- `~/.liberi/tmp/model-catalog.json` 是全部连接共用的单一缓存，按连接保存模型 ID、名称、上下文限制与清单来源，不保存 API Key。条目键由 `providerId` 与端点摘要组成，与凭据无关；写入只改动对应条目。旧字符串清单及其他无效缓存按未命中处理，下次获取清单时重新同步。位置见[设置配置](settings.md)。
+- `~/.liberi/settings.json` 统一保存服务商 ID、端点、选中模型、推理强度、API Key、当前选中的服务商和 Agent 设置；删除只移除目标配置并更新自动选中的供应商与模型。存储位置见[设置配置](settings.md)。
+- `~/.liberi/tmp/model-catalog.json` 是全部连接共用的单一缓存，按连接保存模型 ID、名称、推理能力、强度选项、上下文限制与清单来源，不保存 API Key。条目键由 `providerId` 与端点摘要组成，与凭据无关；写入只改动对应条目。旧字符串清单及其他无效缓存按未命中处理，下次获取清单时重新同步。位置见[设置配置](settings.md)。
 - 首个模型必须通过 Chat Completions 校验；接口失败、列表为空、模型无权限或保存失败均显示连接失败，不改变当前已连接的模型。
 - 本地已保存的连接在启动时直接激活，不表示凭据仍有效；模型清单刷新失败会回退缓存并在界面提示，后续请求失败由正常对话错误分支处理，适配器会过滤错误正文中回显的 API Key。
 - `/compact` 使用已配置的总结模型，策略见[上下文压缩](agent-loop.md)。退出 CLI 会在 Ink 卸载后清理终端并结束进程，详见[终端交互](terminal-ui.md)。

@@ -16,12 +16,14 @@ export const PERMISSION_LABELS: Record<PermissionMode, string> = {
   'full-access': '完全许可',
 };
 
-/** 一个服务商保存的连接选项、当前模型及凭据。 */
+/** 一个服务商保存的连接选项、当前模型、凭据及推理强度。 */
 export interface SavedConnection {
   providerId: string;
   baseURL: string;
   model: string;
   apiKey: string;
+  /** 当前模型显式选择的推理强度；未配置时按模型默认档位回退。 */
+  reasoningEffort?: string;
 }
 
 /** 用户目录中统一保存的 Agent 设置和服务商连接。 */
@@ -81,7 +83,9 @@ export async function loadSettings(file = SETTINGS_FILE): Promise<Settings> {
           PROVIDERS.some(provider => provider.id === item.providerId) &&
           typeof item.baseURL === 'string' &&
           typeof item.model === 'string' &&
-          typeof item.apiKey === 'string'
+          typeof item.apiKey === 'string' &&
+          (item.reasoningEffort === undefined ||
+            (typeof item.reasoningEffort === 'string' && item.reasoningEffort.trim().length > 0))
       )
     )
       throw new Error();
@@ -102,7 +106,7 @@ export interface StoragePaths {
   modelsFile: string;
 }
 
-/** 模型清单缓存，保留厂商顺序、清单来源及模型名称和上下文限制。 */
+/** 模型清单缓存，保留厂商顺序、清单来源及模型名称、推理元信息和上下文限制。 */
 export interface ModelCatalog {
   models: ModelInfo[];
   source: 'api' | 'documentation';
@@ -182,6 +186,9 @@ function readCacheEntry(entry: unknown): ModelCacheEntry | undefined {
         typeof model === 'object' &&
         typeof model.id === 'string' &&
         typeof model.name === 'string' &&
+        (model.reasoning === undefined || typeof model.reasoning === 'boolean') &&
+        (model.effort === undefined ||
+          (Array.isArray(model.effort) && model.effort.every(item => typeof item === 'string'))) &&
         [model.contextWindow, model.maxInputTokens, model.maxOutputTokens].every(
           limit =>
             limit === undefined ||

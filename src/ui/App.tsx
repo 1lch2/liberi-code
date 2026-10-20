@@ -12,6 +12,7 @@ import { ProviderList } from './ProviderList';
 import { ModelList } from './ModelList';
 import { ConfigList } from './ConfigList';
 import { PermissionList } from './PermissionList';
+import { EffortList } from './EffortList';
 import { useCommands } from '../hook/useCommands';
 
 /** 管理终端输入和消息列表，并展示 Agent 的输出事件。 */
@@ -135,6 +136,7 @@ export function App() {
   if (session.view === 'subagent-models') return <ModelList busy={busy} target="subagent" />;
   if (session.view === 'review-models') return <ModelList busy={busy} target="review" />;
   if (session.view === 'permissions') return <PermissionList busy={busy} />;
+  if (session.view === 'effort') return <EffortList busy={busy} />;
 
   return (
     // 为 Ink 重绘后的换行保留一行；仅设置最小高度，让长消息自然延伸。
@@ -177,6 +179,7 @@ export function App() {
         {session.error && <Text color="yellow">{session.error} 使用 /provider 重新连接。</Text>}
         <Toolbar
           model={connection?.llm.model.name}
+          effort={connection?.llm.activeReasoningEffort}
           contextWindow={connection?.llm.model.contextWindow}
           permission={session.settings.permission}
           usage={tokenUsage}

@@ -41,10 +41,14 @@ export interface CompletionRequest {
   onTokenUsage?: (usage: TokenUsage) => void;
 }
 
-/** 模型调用标识、展示名称及已知的上下文和输入输出限制。 */
+/** 模型调用标识、展示名称、推理能力及已知的上下文和输入输出限制。 */
 export interface ModelInfo {
   id: string;
   name: string;
+  /** 是否支持推理模式；未获取到 models.dev 元信息时保持未知。 */
+  reasoning?: boolean;
+  /** 推理强度选项；仅有开关能力时使用 on/off，未获取到元信息时保持未知。 */
+  effort?: string[];
   contextWindow?: number;
   maxInputTokens?: number;
   maxOutputTokens?: number;

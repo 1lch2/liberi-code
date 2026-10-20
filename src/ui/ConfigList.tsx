@@ -48,7 +48,7 @@ export function ConfigList() {
         active={!session.loadingConfig}
       />
       <Text dimColor>模型均从当前 Provider 的模型清单选择。</Text>
-      {session.loadingConfig && <Text dimColor>正在读取本地配置...</Text>}
+      {session.loadingConfig && <Text dimColor>正在加载配置与模型清单...</Text>}
       {session.error && <Text color="red">{session.error}</Text>}
     </Box>
   );

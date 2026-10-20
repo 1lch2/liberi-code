@@ -172,7 +172,7 @@ export function App() {
           onSubmit={handleSubmit}
           commands={commands}
         />
-        {session.loadingConfig && <Text dimColor>正在读取本地配置...</Text>}
+        {session.loadingConfig && <Text dimColor>正在加载配置与模型清单...</Text>}
         {compactStatus && <Text dimColor>{compactStatus}</Text>}
         {session.error && <Text color="yellow">{session.error} 使用 /provider 重新连接。</Text>}
         <Toolbar

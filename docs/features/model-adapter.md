@@ -2,14 +2,14 @@
 
 [返回功能索引](../feature-map.yaml)
 
-覆盖状态：已核对 SDK 请求、消息转换及用量上报主链路。最近核对：2026-10-15。
+覆盖状态：已核对 SDK 请求、消息转换及用量上报主链路。最近核对：2026-10-20。
 
 ## 入口与关键实现
 
 - [src/openai-llm.ts](../../src/openai-llm.ts)：`OpenAILLM` 实现 `LLM`；`toOpenAIMessage` 转换内部消息，`complete` 调用 `client.chat.completions.create`，转换首个响应 choice 的正文和工具调用。
 - [src/types.ts](../../src/types.ts)：`ModelInfo` 保存模型 ID、名称与可选上下文、最大输入和最大输出限制；`LLM.model` 向 Agent 暴露元信息。`CompletionRequest`、`AssistantMessage` 和 `ToolCall` 定义补全协议，不依赖 SDK 类型。
 - [src/core/provider.ts](../../src/core/provider.ts)：按内置服务商或自定义端点查询模型列表、校验连接后创建适配器，配置入口见[Provider](providers.md)。启动不再读取模型环境变量。
-- [src/ui/ProviderSession.tsx](../../src/ui/ProviderSession.tsx)：启动时只读取本地已选连接，直接使用保存的端点、模型和 Key 创建适配器，不调用连接校验流程。
+- [src/ui/ProviderSession.tsx](../../src/ui/ProviderSession.tsx)：启动时读取本地已选连接，使用保存的端点、模型和 Key 创建适配器；会刷新模型清单但不执行聊天连接校验；当前模型不在新清单时切换到首个模型，刷新失败回退本地缓存。
 
 ## 调用链与状态边界
 

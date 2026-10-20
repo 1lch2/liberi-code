@@ -2,13 +2,13 @@
 
 [返回功能索引](../feature-map.yaml)
 
-覆盖状态：已核对注册、选择、校验、保存、删除及本地启动初始化主链路，并通过本地 HTTP 服务与 Ink 模拟终端的 E2E 检查。最近核对：2026-10-14。未使用各厂商真实 API Key 验收全部端点。
+覆盖状态：已核对注册、选择、校验、保存、删除、启动模型清单刷新及本地启动初始化主链路，并通过本地 HTTP 服务与 Ink 模拟终端的 E2E 检查。最近核对：2026-10-20。未使用各厂商真实 API Key 验收全部端点。
 
 ## 入口与关键实现
 
 - [src/core/provider.ts](../../src/core/provider.ts)：统一供应商清单与连接实现。`PROVIDERS` 使用 models.dev 的内置供应商 ID，保留中文标签与现有 Chat Completions 地址；自定义兼容端点使用本地 ID `openai-compatible`。`fetchModelCatalog` 获取服务商可用模型，再从 models.dev 补充名称与上下文限制；`connectProvider` 验证首个模型并返回连接供会话层保存和激活，本文件不读写本地配置。
 - [src/hook/useCommands.ts](../../src/hook/useCommands.ts)：应用命令列表注册 `/provider` 和 `/model`，将会话的 `openProviders`、`openModels` 绑定为执行回调；`App` 将列表传给输入组件，由 [src/core/commands.ts](../../src/core/commands.ts) 通用分发器匹配执行。
-- [src/ui/ProviderSession.tsx](../../src/ui/ProviderSession.tsx)：`ProviderSession` 管理连接、选项和页面状态；主动连接时调用 `connectProvider` 校验，依次保存模型缓存与连接后再激活。启动读取用户目录配置及已选连接的本地模型缓存，不请求服务商或 models.dev、不刷新缓存或改写配置；缓存未命中时以模型 ID 作为展示名，上下文限制保持未知。缺少已选连接时保持未连接状态。
+- [src/ui/ProviderSession.tsx](../../src/ui/ProviderSession.tsx)：`ProviderSession` 管理连接、选项和页面状态；主动连接时调用 `connectProvider` 校验，依次保存模型缓存与连接后再激活。启动读取用户目录配置后，对已选连接主动调用 `fetchModelCatalog` 刷新服务商模型清单并同步 models.dev 名称与上下文限制，成功后覆盖本地缓存；如果刷新后的清单不包含当前模型，自动切换到清单中的第一个模型并保存连接。刷新失败时回退本地缓存并在界面提示错误，缓存也未命中时以模型 ID 作为展示名，上下文限制保持未知。缺少已选连接时保持未连接状态。
 - [src/hook/useProviderSession.ts](../../src/hook/useProviderSession.ts)：`useProviderSession` 提供共享状态读取入口，Hook 与 UI 组件分别归属 `src/hook` 和 `src/ui`。
 - [src/ui/ProviderList.tsx](../../src/ui/ProviderList.tsx)：中文标签作为 `label`、Provider ID 作为灰色 `comment`，右侧 `value` 显示“已连接”或“已配置”，未配置项留空。上下键选择、回车展开输入、列表状态双按 D 删除配置；内置项输入 API Key，自定义项先输入地址。Key 使用掩码显示，连接失败保留页面供重试，Esc 返回列表或聊天。
 - [src/ui/List.tsx](../../src/ui/List.tsx)：Provider、模型和设置页面共用的受控列表，支持标签、可选说明和当前值，负责上下键循环导航与回车确认；布局见[设置配置](settings.md)。
@@ -67,5 +67,5 @@ GLM 官方 OpenAPI 没有公开模型列表定义。仅在标准接口返回 404
 - `~/.liberi/settings.json` 统一保存服务商 ID、端点、选中模型、API Key、当前选中的服务商和 Agent 设置；删除只移除目标配置并更新自动选中的供应商与模型。存储位置见[设置配置](settings.md)。
 - `~/.liberi/tmp/model-catalog.json` 是全部连接共用的单一缓存，按连接保存模型 ID、名称、上下文限制与清单来源，不保存 API Key。条目键由 `providerId` 与端点摘要组成，与凭据无关；写入只改动对应条目。旧字符串清单及其他无效缓存按未命中处理，下次获取清单时重新同步。位置见[设置配置](settings.md)。
 - 首个模型必须通过 Chat Completions 校验；接口失败、列表为空、模型无权限或保存失败均显示连接失败，不改变当前已连接的模型。
-- 本地已保存的连接在启动时直接使用，不表示凭据仍有效；请求失败由正常对话错误分支提示，适配器会过滤错误正文中回显的 API Key。
+- 本地已保存的连接在启动时直接激活，不表示凭据仍有效；模型清单刷新失败会回退缓存并在界面提示，后续请求失败由正常对话错误分支处理，适配器会过滤错误正文中回显的 API Key。
 - `/compact` 使用已配置的总结模型，策略见[上下文压缩](agent-loop.md)。退出 CLI 会在 Ink 卸载后清理终端并结束进程，详见[终端交互](terminal-ui.md)。

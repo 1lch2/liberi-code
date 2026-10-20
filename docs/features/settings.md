@@ -16,7 +16,7 @@
 
 ## 保存与行为边界
 
-默认设置文件为用户主目录下的 `~/.liberi/settings.json`，也是用户目录中唯一保存 Agent 配置与凭据的文件；缺少 `permission` 时按 `workspace-write` 处理。启动只读取，不迁移写入；下一次保存设置、连接或模型时写入文件。该文件同时是[文件读取](file-tools.md)唯一排除的凭据文件。
+默认设置文件为用户主目录下的 `~/.liberi/settings.json`，也是用户目录中唯一保存 Agent 配置与凭据的文件；缺少 `permission` 时按 `workspace-write` 处理。设置文件在启动时只读取，不迁移写入；下一次保存设置、连接或模型时写入文件。启动时的模型清单刷新会更新独立缓存，见 [Provider](providers.md)。该文件同时是[文件读取](file-tools.md)唯一排除的凭据文件。
 
 `loadSettings` 只接受当前内置 Provider ID，不再转换旧内置 Provider ID，也不读取旧的 `providers.json` 配置。连接中使用旧 Provider ID 时按格式无效处理；已选供应商标识不再映射，无法匹配已保存连接时保持未连接状态。模型名称与上下文限制保存在模型清单缓存中，不写入凭据配置。
 

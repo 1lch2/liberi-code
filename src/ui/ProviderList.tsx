@@ -170,7 +170,7 @@ export function ProviderList({ busy }: ProviderListProps) {
         </Text>
       )}
       {busy && <Text color="yellow">请等待当前对话结束后连接或移除服务商。</Text>}
-      {session.loadingConfig && <Text dimColor>正在读取本地配置...</Text>}
+      {session.loadingConfig && <Text dimColor>正在加载配置与模型清单...</Text>}
       {error && <Text color="red">{error}</Text>}
     </Box>
   );

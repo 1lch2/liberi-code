@@ -56,7 +56,7 @@ export interface ProviderSessionProps {
   paths?: StoragePaths;
 }
 
-/** 管理连接和页面状态，启动时读取本地设置及模型信息缓存。 */
+/** 管理连接和页面状态，启动时读取本地设置并刷新当前 Provider 的模型清单。 */
 export function ProviderSession({ children, paths = STORAGE_PATHS }: ProviderSessionProps) {
   const [connection, setConnection] = useState<ProviderConnection>();
   const [settings, setSettings] = useState<Settings>({
@@ -85,18 +85,60 @@ export function ProviderSession({ children, paths = STORAGE_PATHS }: ProviderSes
           item => item.providerId === saved.selectedProviderId
         );
         if (selected) {
-          const catalog = await loadModelCatalog(selected, paths);
+          // 启动时主动刷新模型清单；失败时回退本地缓存，避免离线无法启动。
+          let catalog: ModelCatalog | undefined;
+          let refreshed = false;
+          const provider = PROVIDERS.find(item => item.id === selected.providerId);
+          if (provider) {
+            try {
+              catalog = await fetchModelCatalog(provider, selected.apiKey, selected.baseURL);
+              refreshed = true;
+            } catch (err) {
+              if (!cancelled) {
+                setError(`模型清单刷新失败：${err instanceof Error ? err.message : '未知错误。'}`);
+              }
+            }
+            if (catalog) {
+              try {
+                await saveModelCatalog(selected, catalog, paths);
+              } catch {
+                if (!cancelled) setError('模型清单已刷新，但本地缓存保存失败。');
+              }
+            }
+          }
+          catalog ??= await loadModelCatalog(selected, paths);
           if (cancelled) return;
+          let options = selected;
+          if (
+            refreshed &&
+            catalog?.models.length &&
+            !catalog.models.some(model => model.id === options.model)
+          ) {
+            // 当前模型可能已从服务商清单移除（例如预览版下线），回退到第一个可用模型并保存选择。
+            options = { ...options, model: catalog.models[0]!.id };
+            try {
+              await saveProviderConnection(options, paths);
+            } catch {
+              if (!cancelled) setError('当前模型已不在模型清单中，回退后的模型选择保存失败。');
+            }
+            if (cancelled) return;
+            setSettings(previous => ({
+              ...previous,
+              connections: previous.connections.map(item =>
+                item.providerId === options.providerId ? options : item
+              ),
+            }));
+          }
           activate(
             {
-              options: selected,
+              options,
               catalog,
               llm: new OpenAILLM({
-                apiKey: selected.apiKey,
-                baseURL: selected.baseURL,
-                model: catalog?.models.find(model => model.id === selected.model) ?? {
-                  id: selected.model,
-                  name: selected.model,
+                apiKey: options.apiKey,
+                baseURL: options.baseURL,
+                model: catalog?.models.find(model => model.id === options.model) ?? {
+                  id: options.model,
+                  name: options.model,
                 },
               }),
             },

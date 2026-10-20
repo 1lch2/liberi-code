@@ -9,7 +9,7 @@ import { List } from './List';
 /** 模型选择页面的忙碌状态与设置目标。 */
 export interface ModelListProps {
   busy: boolean;
-  target?: 'agent' | 'subagent';
+  target?: 'agent' | 'subagent' | 'review';
 }
 
 /** 展示当前服务商的模型，保存后返回聊天或设置界面。 */
@@ -23,8 +23,14 @@ export function ModelList({ busy, target = 'agent' }: ModelListProps) {
   const [error, setError] = useState<string>();
   const blocked = busy || loadingConfig || loading || saving;
   const provider = PROVIDERS.find(item => item.id === connection?.options.providerId);
+  const targetLabel = target === 'subagent' ? ' subagent ' : target === 'review' ? ' review ' : '';
+  const targetNote = target === 'review' ? '（暂未实现）' : '';
   const currentModel =
-    target === 'subagent' ? session.settings.subagentModel : connection?.options.model;
+    target === 'subagent'
+      ? session.settings.subagentModel
+      : target === 'review'
+        ? session.settings.reviewModel
+        : connection?.options.model;
 
   useEffect(() => {
     if (loadingConfig) return;
@@ -55,8 +61,8 @@ export function ModelList({ busy, target = 'agent' }: ModelListProps) {
 
   useInput((_input, key) => {
     if (key.escape && !saving) {
-      if (target === 'subagent') session.openConfig();
-      else session.closeSelection();
+      if (target === 'agent') session.closeSelection();
+      else session.openConfig();
     }
   });
 
@@ -66,6 +72,7 @@ export function ModelList({ busy, target = 'agent' }: ModelListProps) {
     setError(undefined);
     try {
       if (target === 'subagent') await session.selectSubagentModel(model);
+      else if (target === 'review') await session.selectReviewModel(model);
       else await session.selectModel(model);
     } catch (err) {
       setError(err instanceof Error ? err.message : '模型切换失败。');
@@ -77,7 +84,8 @@ export function ModelList({ busy, target = 'agent' }: ModelListProps) {
   return (
     <Box flexDirection="column" paddingX={2} paddingY={1}>
       <Text bold>
-        选择{target === 'subagent' ? ' subagent ' : ''}模型{provider ? ` · ${provider.name}` : ''}
+        选择{targetLabel}模型{targetNote}
+        {provider ? ` · ${provider.name}` : ''}
       </Text>
       <Text dimColor>↑↓ 选择 · Enter 确认 · Esc 返回</Text>
       <List

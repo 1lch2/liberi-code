@@ -4,6 +4,8 @@ import { execFile } from 'node:child_process';
 export interface PowerShellPathAnalysis {
   valid: boolean;
   paths: string[];
+  /** 命令是否只包含读取操作。 */
+  readOnly: boolean;
 }
 
 // 使用真实语法树和参数绑定解析路径，绝不求值或执行传入的命令。
@@ -15,6 +17,21 @@ $tokens = $null
 $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseInput($request.command, [ref]$tokens, [ref]$errors)
 $paths = [System.Collections.Generic.List[string]]::new()
+$readOnly = $true
+$readOnlyCommands = @(
+  'Get-ChildItem', 'Get-Content', 'Get-Item', 'Get-ItemProperty', 'Get-ItemPropertyValue',
+  'Get-Location', 'Get-Command', 'Get-Help', 'Get-Member', 'Get-Module', 'Get-Process',
+  'Get-Service', 'Get-Date', 'Get-Random', 'Get-FileHash', 'Get-Acl', 'Get-Alias',
+  'Get-Culture', 'Get-ExecutionPolicy', 'Get-History', 'Get-Host', 'Get-PSDrive',
+  'Get-PSProvider', 'Get-TimeZone', 'Get-UICulture', 'Get-Variable', 'Get-WinEvent',
+  'Get-EventLog', 'Get-Unique', 'Select-String', 'Select-Object', 'Where-Object',
+  'ForEach-Object', 'Measure-Object', 'Sort-Object', 'Group-Object', 'Compare-Object',
+  'Test-Path', 'Resolve-Path', 'Split-Path', 'Join-Path', 'Test-Json',
+  'ConvertTo-Json', 'ConvertFrom-Json', 'ConvertTo-Csv', 'ConvertFrom-Csv',
+  'Format-Table', 'Format-List', 'Format-Wide', 'Format-Custom', 'Out-String',
+  'Write-Output', 'Write-Host', 'Write-Verbose', 'Write-Warning', 'Write-Debug',
+  'Write-Information', 'Write-Progress'
+)
 
 function Add-Path($value, [bool]$literal) {
   foreach ($item in @($value)) {
@@ -39,34 +56,109 @@ function Add-Path($value, [bool]$literal) {
 }
 
 function Read-StaticValue($node) {
-  # SafeGetValue 仅允许常量及常量数组，不运行子表达式、变量或命令。
+  # 仅计算常量字符串替换，不运行输入中的命令或任意方法。
   if ($null -eq $node) { throw '缺少路径值' }
+  if ($node -is [System.Management.Automation.Language.ParenExpressionAst] -and
+      $node.Pipeline -is [System.Management.Automation.Language.PipelineAst] -and
+      $node.Pipeline.PipelineElements.Count -eq 1 -and
+      $node.Pipeline.PipelineElements[0] -is [System.Management.Automation.Language.CommandExpressionAst]) {
+    return Read-StaticValue $node.Pipeline.PipelineElements[0].Expression
+  }
+  if ($node -is [System.Management.Automation.Language.InvokeMemberExpressionAst]) {
+    if (-not (Test-StringReplace $node)) { throw '不支持的方法调用' }
+    $value = Read-StaticValue $node.Expression
+    if ($value -isnot [string]) { throw '不是静态字符串' }
+    return $value.Replace((Read-StaticValue $node.Arguments[0]), (Read-StaticValue $node.Arguments[1]))
+  }
   return $node.SafeGetValue()
+}
+
+function Test-StringExpression($node) {
+  if ($node -is [System.Management.Automation.Language.StringConstantExpressionAst]) { return $true }
+  if ($node -is [System.Management.Automation.Language.ExpandableStringExpressionAst]) { return $node.NestedExpressions.Count -eq 0 }
+  if ($node -is [System.Management.Automation.Language.InvokeMemberExpressionAst]) { return Test-StringReplace $node }
+  if ($node -is [System.Management.Automation.Language.ParenExpressionAst] -and
+      $node.Pipeline -is [System.Management.Automation.Language.PipelineAst] -and
+      $node.Pipeline.PipelineElements.Count -eq 1) {
+    $element = $node.Pipeline.PipelineElements[0]
+    if ($element -is [System.Management.Automation.Language.CommandExpressionAst]) { return Test-StringExpression $element.Expression }
+    if ($element -is [System.Management.Automation.Language.CommandAst]) {
+      $info = Get-Command -Name $element.GetCommandName() -CommandType Cmdlet,Alias -ErrorAction SilentlyContinue
+      if ($info -is [System.Management.Automation.AliasInfo]) { $info = Get-Command -Name $info.Definition -CommandType Cmdlet -ErrorAction Stop }
+      if ($info.Name -eq 'Get-Content') {
+        $binding = [System.Management.Automation.Language.StaticParameterBinder]::BindCommand($element)
+        if (-not $binding.BoundParameters.ContainsKey('Raw')) { return $false }
+        $raw = $binding.BoundParameters['Raw']
+        $rawValue = if ($raw.Value) { Read-StaticValue $raw.Value } else { $raw.ConstantValue }
+        return $rawValue -eq $true -and
+          -not $binding.BoundParameters.ContainsKey('AsByteStream') -and
+          (-not $binding.BoundParameters.ContainsKey('Encoding') -or
+            (Read-StaticValue $binding.BoundParameters['Encoding'].Value) -ne 'Byte')
+      }
+    }
+  }
+  return $false
+}
+
+function Test-StringReplace($node) {
+  if ($node.Static -or $node.Member -isnot [System.Management.Automation.Language.StringConstantExpressionAst] -or
+      $node.Member.Value -ine 'Replace' -or $node.Arguments.Count -ne 2) { return $false }
+  foreach ($argument in $node.Arguments) {
+    if ((Read-StaticValue $argument) -isnot [string]) { return $false }
+  }
+  return Test-StringExpression $node.Expression
 }
 
 try {
   if ($errors.Count -gt 0) { throw '语法错误' }
   $unsupported = $ast.FindAll({ param($node)
     $node -is [System.Management.Automation.Language.AssignmentStatementAst] -or
-    $node -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -or
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -or
     $node -is [System.Management.Automation.Language.UsingStatementAst]
   }, $true)
   if ($unsupported.Count -gt 0) { throw '无法静态确认的执行上下文' }
-  foreach ($redirect in $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FileRedirectionAst] }, $true)) {
-    Add-Path (Read-StaticValue $redirect.Location) $true
+  foreach ($method in $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.InvokeMemberExpressionAst] }, $true)) {
+    if (-not (Test-StringReplace $method)) { throw '不支持的方法调用' }
   }
-  foreach ($command in $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true)) {
+  # 按源码顺序处理命令和重定向，使相对路径跟随已确认的目录切换。
+  $operations = $ast.FindAll({ param($node)
+    $node -is [System.Management.Automation.Language.CommandAst] -or
+    $node -is [System.Management.Automation.Language.FileRedirectionAst]
+  }, $true) | Sort-Object { $_.Extent.StartOffset }
+  foreach ($command in $operations) {
+    if ($command -is [System.Management.Automation.Language.FileRedirectionAst]) {
+      $readOnly = $false
+      Add-Path (Read-StaticValue $command.Location) $true
+      continue
+    }
     $name = $command.GetCommandName()
     if (-not $name) { throw '动态命令名' }
     $info = Get-Command -Name $name -CommandType Cmdlet,Alias -ErrorAction SilentlyContinue
-    if ($info -is [System.Management.Automation.AliasInfo]) { $info = $info.ResolvedCommand }
+    # 别名指向的模块可能尚未加载，显式解析定义，不能将空 ResolvedCommand 当作外部程序。
+    if ($info -is [System.Management.Automation.AliasInfo]) { $info = Get-Command -Name $info.Definition -CommandType Cmdlet -ErrorAction Stop }
     $canonical = if ($info) { $info.Name } else { [IO.Path]::GetFileNameWithoutExtension($name) }
-    if ($canonical -in @('Set-Location','Push-Location','Pop-Location','Set-Alias','New-Alias','Import-Alias','Invoke-Expression','Invoke-Command','Start-Process','Start-Job','Start-ThreadJob','Import-Module','New-PSDrive','Remove-PSDrive','Set-Variable','New-Variable','Remove-Variable','pwsh','powershell','cmd','bash','sh')) { throw '无法静态确认的执行上下文' }
+    if ($canonical -in @('Push-Location','Pop-Location','Set-Alias','New-Alias','Import-Alias','Invoke-Expression','Invoke-Command','Start-Process','Start-Job','Start-ThreadJob','Import-Module','New-PSDrive','Remove-PSDrive','Set-Variable','New-Variable','Remove-Variable','pwsh','powershell','cmd','bash','sh')) { throw '无法静态确认的执行上下文' }
+    if ($canonical -ne 'Set-Location' -and $canonical -notin $readOnlyCommands) { $readOnly = $false }
     if (-not $info -and ($name -match '[/\\:]' -or $name.StartsWith('.'))) { Add-Path $name $true }
     if ($info -and $info.CommandType -eq 'Cmdlet') {
       $binding = [System.Management.Automation.Language.StaticParameterBinder]::BindCommand($command)
       if ($binding.BindingExceptions.Count -gt 0) { throw '无法绑定参数' }
+      if ($canonical -eq 'Set-Location') {
+        # 只跟踪顶层独立语句，避免条件、循环、管道和子表达式改变目录推导结果。
+        $pipeline = $command.Parent
+        if ($pipeline -isnot [System.Management.Automation.Language.PipelineAst] -or
+            $pipeline.Parent -ne $ast.EndBlock -or $pipeline.PipelineElements.Count -ne 1 -or
+            $pipeline.Background -or $command.Redirections.Count -gt 0 -or
+            @($binding.BoundParameters.Keys | Where-Object { $_ -notin @('Path','LiteralPath') }).Count -gt 0) { throw '无法静态确认的目录切换' }
+        $key = if ($binding.BoundParameters.ContainsKey('LiteralPath')) { 'LiteralPath' } else { 'Path' }
+        $target = Read-StaticValue $binding.BoundParameters[$key].Value
+        $locations = if ($key -eq 'LiteralPath') { @(Resolve-Path -LiteralPath $target -ErrorAction Stop) } else { @(Resolve-Path -Path $target -ErrorAction Stop) }
+        $locations = @($locations | Where-Object { Test-Path -LiteralPath $_.ProviderPath -PathType Container })
+        if ($locations.Count -ne 1) { throw '目录切换目标不唯一或不是目录' }
+        Add-Path $locations[0].ProviderPath $true
+        Set-Location -LiteralPath $locations[0].ProviderPath
+        continue
+      }
       if ($binding.BoundParameters.ContainsKey('FollowSymlink')) { throw '无法静态确认递归链接目标' }
       $isLink = $canonical -eq 'New-Item' -and $binding.BoundParameters.ContainsKey('ItemType') -and (Read-StaticValue $binding.BoundParameters['ItemType'].Value) -in @('SymbolicLink', 'Junction', 'HardLink')
       $hasInputPath = $false
@@ -106,9 +198,9 @@ try {
       }
     }
   }
-  @{ valid = $true; paths = @($paths) } | ConvertTo-Json -Compress
+  @{ valid = $true; paths = @($paths); readOnly = $readOnly } | ConvertTo-Json -Compress
 } catch {
-  @{ valid = $false; paths = @() } | ConvertTo-Json -Compress
+  @{ valid = $false; paths = @(); readOnly = $false } | ConvertTo-Json -Compress
 }
 `;
 

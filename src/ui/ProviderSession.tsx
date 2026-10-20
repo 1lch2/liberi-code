@@ -20,19 +20,28 @@ export interface ProviderSessionState {
   connection?: ProviderConnection;
   agent?: MainAgent;
   settings: Settings;
-  view: 'chat' | 'providers' | 'models' | 'config' | 'subagent-models' | 'permissions';
+  view:
+    | 'chat'
+    | 'providers'
+    | 'models'
+    | 'config'
+    | 'subagent-models'
+    | 'review-models'
+    | 'permissions';
   loadingConfig: boolean;
   error?: string;
   openProviders: () => void;
   openModels: () => void;
   openConfig: () => void;
   openSubagentModels: () => void;
+  openReviewModels: () => void;
   openPermissions: () => void;
   closeSelection: () => void;
   loadModels: () => Promise<ModelCatalog>;
   createCompactLLM: () => Promise<LLM | undefined>;
   selectModel: (model: string) => Promise<void>;
   selectSubagentModel: (model: string) => Promise<void>;
+  selectReviewModel: (model: string) => Promise<void>;
   selectPermission: (permission: PermissionMode) => Promise<void>;
   removeProvider: (providerId: string) => Promise<void>;
   connect: (provider: ProviderDefinition, apiKey: string, baseURL?: string) => Promise<void>;
@@ -243,6 +252,14 @@ export function ProviderSession({ children, paths = STORAGE_PATHS }: ProviderSes
     setView('config');
   }
 
+  async function selectReviewModel(model: string) {
+    const saved = await loadSettings(paths.configFile);
+    const updated = { ...saved, reviewModel: model };
+    await saveSettings(updated, paths.configFile);
+    setSettings(updated);
+    setView('config');
+  }
+
   async function selectPermission(permission: PermissionMode) {
     const saved = await loadSettings(paths.configFile);
     const updated = { ...saved, permission };
@@ -266,12 +283,14 @@ export function ProviderSession({ children, paths = STORAGE_PATHS }: ProviderSes
         createCompactLLM,
         selectModel,
         selectSubagentModel,
+        selectReviewModel,
         selectPermission,
         removeProvider,
         openProviders: () => setView('providers'),
         openModels: () => setView('models'),
         openConfig: () => setView('config'),
         openSubagentModels: () => setView('subagent-models'),
+        openReviewModels: () => setView('review-models'),
         openPermissions: () => setView('permissions'),
         closeSelection: () => setView('chat'),
       }}

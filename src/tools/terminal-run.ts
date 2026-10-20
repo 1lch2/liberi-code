@@ -25,13 +25,19 @@ export async function terminalRun(
 ): Promise<string> {
   const command = String(args.command);
   const shell = getCurrentShellInfo();
-  if (
-    permission === 'workspace-write' &&
-    !(await checkTerminalCommandPermission(command, cwd, shell))
-  ) {
-    throw new Error(
-      '权限不足：命令含有超出工作目录的路径，或无法静态确认路径的 Shell 语法。请使用直接的路径参数，避免动态路径和切换目录。'
-    );
+  // TODO: auto-review 暂未实现，当前与 workspace-write 共用命令路径检查。
+  if (permission !== 'full-access') {
+    const readOnly = permission === 'read-only';
+    if (readOnly && shell.type !== 'powershell' && shell.type !== 'bash') {
+      throw new Error('仅读取模式不支持 CMD 和 sh，请使用 PowerShell 或 Bash。');
+    }
+    if (!(await checkTerminalCommandPermission(command, cwd, shell, readOnly))) {
+      throw new Error(
+        readOnly
+          ? '仅读取模式命令未通过检查：只允许可静态确认的只读命令，不能创建、修改、复制、删除或移动文件，不能使用输出重定向，也不能执行未知外部程序；读取路径仍须位于工作目录内。'
+          : '命令路径检查未通过：包含工作目录外的路径，或无法静态分析的 Shell 语法。请使用可静态确认的路径；PowerShell 切换目录需使用顶层独立语句。'
+      );
+    }
   }
 
   const options = { cwd, maxBuffer: 10 * 1024 * 1024, windowsHide: true };
@@ -67,7 +73,7 @@ export const terminalRunTool = {
   definition: {
     name: 'terminal_run',
     description:
-      'Run a shell command from the working directory. In workspace-write mode, PowerShell and Bash validate paths and reject dynamic paths, assignments, directory changes and nested shells; CMD and sh skip this check. Full-access mode skips path validation. Returns combined stdout and stderr. ' +
+      'Run a shell command from the working directory. In workspace-write mode, PowerShell and Bash validate paths and reject dynamic paths, assignments and nested shells. PowerShell allows standalone top-level cd/Set-Location with a static workspace path, and string Replace on literals or Get-Content -Raw text; Bash rejects directory changes. CMD and sh skip this check. Full-access mode skips path validation. Returns combined stdout and stderr. ' +
       SHELL_USAGE[getCurrentShellInfo().type],
     parameters: {
       type: 'object',

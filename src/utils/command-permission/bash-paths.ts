@@ -10,6 +10,14 @@ export interface BashPathAnalysis {
   valid: boolean;
   paths: string[];
   recursivePaths: string[];
+  /** 命令是否只包含读取操作。 */
+  readOnly: boolean;
+}
+
+/** 单条命令的校验结果与是否只读。 */
+interface CommandInspection {
+  valid: boolean;
+  readOnly: boolean;
 }
 
 /** 移除会改变 Bash 启动行为的继承环境，分析进程与实际命令共用。 */
@@ -249,7 +257,12 @@ export async function getBashPaths(
   cwd: string,
   shellPath: string
 ): Promise<BashPathAnalysis> {
-  const invalid: BashPathAnalysis = { valid: false, paths: [], recursivePaths: [] };
+  const invalid: BashPathAnalysis = {
+    valid: false,
+    paths: [],
+    recursivePaths: [],
+    readOnly: false,
+  };
   const tokens = tokenize(command);
   if (!tokens) return invalid;
   const options = { cwd, env: getBashEnvironment(), maxBuffer: 10 * 1024 * 1024, timeout: 15_000 };
@@ -281,12 +294,15 @@ export async function getBashPaths(
   }
   const paths: string[] = [];
   const recursivePaths: string[] = [];
+  let readOnly = true;
   let args: string[] = [];
   const flush = async () => {
     if (!args.length) return true;
     const current = args;
     args = [];
-    return inspectCommand(current, cwd, paths, recursivePaths);
+    const inspection = await inspectCommand(current, cwd, paths, recursivePaths);
+    if (!inspection.readOnly) readOnly = false;
+    return inspection.valid;
   };
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
@@ -304,11 +320,15 @@ export async function getBashPaths(
       const values = expanded.get(word)!;
       if (values.length !== 1 || !values[0]) return invalid;
       const fd = token.operator === '>&' || token.operator === '<&';
-      if (!fd || !/^(?:[0-9]+-?|-)$/.test(values[0])) paths.push(values[0]);
+      const fdTarget = fd && /^(?:[0-9]+-?|-)$/.test(values[0]);
+      if (!fdTarget) {
+        paths.push(values[0]);
+        if (token.operator !== '<') readOnly = false;
+      }
     }
   }
   if (!(await flush())) return invalid;
-  return { valid: true, paths, recursivePaths };
+  return { valid: true, paths, recursivePaths, readOnly };
 }
 
 function tokenize(command: string): Token[] | null {
@@ -388,35 +408,41 @@ async function inspectCommand(
   cwd: string,
   paths: string[],
   recursivePaths: string[]
-): Promise<boolean> {
+): Promise<CommandInspection> {
+  const invalid: CommandInspection = { valid: false, readOnly: false };
   const [executable, ...operands] = args;
   const name = path.basename(executable);
-  if (!executable || executable.includes('=') || blockedCommands.has(name)) return false;
+  if (!executable || executable.includes('=') || blockedCommands.has(name)) return invalid;
   if (executable.includes('/')) paths.push(executable);
-  if (name === 'echo') return true;
+  if (name === 'echo') return { valid: true, readOnly: true };
   if (name === 'printf') {
     const format = operands[0] === '--' ? operands[1] : operands[0];
-    return (
+    const valid =
       !operands.some(arg => arg.startsWith('-v')) &&
-      !/%[-+ #0]*(?:\d+|\*)?(?:\.(?:\d+|\*))?n/.test(format ?? '')
-    );
+      !/%[-+ #0]*(?:\d+|\*)?(?:\.(?:\d+|\*))?n/.test(format ?? '');
+    return { valid, readOnly: valid };
   }
-  if (['pwd', 'true', 'false'].includes(name)) return true;
+  if (['pwd', 'true', 'false'].includes(name)) return { valid: true, readOnly: true };
   if (name === 'find') return inspectFind(operands, paths);
-  if (['grep', 'rg'].includes(name)) return inspectSearch(name, operands, paths);
+  if (['grep', 'rg'].includes(name)) {
+    const valid = inspectSearch(name, operands, paths);
+    return { valid, readOnly: valid };
+  }
   if (fileCommands.has(name)) {
-    return inspectFileArguments(name, operands, paths, recursivePaths);
+    const valid = inspectFileArguments(name, operands, paths, recursivePaths);
+    return { valid, readOnly: valid && isReadOnlyFileCommand(name, operands) };
   }
   // 外部程序内部行为不属于路径预检查；拒绝常见内联代码入口。
   if (
     ['node', 'nodejs', 'python', 'python3', 'perl', 'ruby'].includes(name) &&
     operands.some(arg => /^-(?:[^-]*[ecp]|-eval|-print|-require|-import)/.test(arg))
   )
-    return false;
+    return invalid;
   for (const argument of operands) {
     const candidate = argument.replace(/^(?:--?)?[\w-]+=/, '').replace(/^-[CILo](?=.)/, '');
     if (/^https?:\/\//i.test(candidate)) continue;
-    if (candidate === argument && argument.startsWith('-') && argument.includes('/')) return false;
+    if (candidate === argument && argument.startsWith('-') && argument.includes('/'))
+      return invalid;
     if (candidate.includes('/') || candidate === '..' || candidate.startsWith('~')) {
       paths.push(candidate);
     } else {
@@ -434,7 +460,49 @@ async function inspectCommand(
       }
     }
   }
-  return true;
+  return { valid: true, readOnly: false };
+}
+
+/** 判断文件类命令本身是否只读取；排序输出、临时目录和 uniq 输出文件属于写操作。 */
+function isReadOnlyFileCommand(name: string, args: string[]): boolean {
+  if (['tee', 'cp', 'mv', 'rm', 'mkdir', 'rmdir', 'touch'].includes(name)) return false;
+  if (name === 'uniq') return countFileOperands(name, args) < 2;
+  if (name !== 'sort') return true;
+  return !args.some(
+    arg =>
+      arg === '-o' ||
+      arg.startsWith('-o') ||
+      arg === '-T' ||
+      arg.startsWith('-T') ||
+      arg === '--output' ||
+      arg.startsWith('--output=') ||
+      arg === '--temporary-directory' ||
+      arg.startsWith('--temporary-directory=')
+  );
+}
+
+/** 统计命令中的文件操作数，跳过选项及其独立取值。 */
+function countFileOperands(name: string, args: string[]): number {
+  let count = 0;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--') {
+      count += args.length - i - 1;
+      break;
+    }
+    if (arg.startsWith('-') && arg !== '-') {
+      const option = (valueOptions[name] ?? []).find(
+        entry =>
+          arg === entry ||
+          arg.startsWith(entry + '=') ||
+          (entry.length === 2 && arg.startsWith(entry))
+      );
+      if (option && !arg.slice(option.length).replace(/^=/, '')) i++;
+      continue;
+    }
+    count++;
+  }
+  return count;
 }
 
 function inspectFileArguments(
@@ -579,7 +647,9 @@ function inspectSearch(name: string, args: string[], paths: string[]): boolean {
   return true;
 }
 
-function inspectFind(args: string[], paths: string[]): boolean {
+function inspectFind(args: string[], paths: string[]): CommandInspection {
+  const invalid: CommandInspection = { valid: false, readOnly: false };
+  let readOnly = true;
   const textOptions = new Set([
     '-name',
     '-iname',
@@ -640,11 +710,16 @@ function inspectFind(args: string[], paths: string[]): boolean {
     if (arg.startsWith('-') || arg === '!') expression = true;
     if (textOptions.has(arg) || pathOptions.has(arg)) {
       const value = args[++i];
-      if (!value) return false;
-      if (pathOptions.has(arg)) paths.push(value);
-    } else if (flags.has(arg)) continue;
-    else if (expression || !arg) return false;
+      if (!value) return invalid;
+      if (pathOptions.has(arg)) {
+        paths.push(value);
+        if (['-fprint', '-fprint0', '-fls'].includes(arg)) readOnly = false;
+      }
+    } else if (flags.has(arg)) {
+      if (arg === '-delete') readOnly = false;
+      continue;
+    } else if (expression || !arg) return invalid;
     else paths.push(arg);
   }
-  return true;
+  return { valid: true, readOnly };
 }

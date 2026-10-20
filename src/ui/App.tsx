@@ -133,6 +133,7 @@ export function App() {
   if (session.view === 'models') return <ModelList busy={busy} />;
   if (session.view === 'config') return <ConfigList />;
   if (session.view === 'subagent-models') return <ModelList busy={busy} target="subagent" />;
+  if (session.view === 'review-models') return <ModelList busy={busy} target="review" />;
   if (session.view === 'permissions') return <PermissionList busy={busy} />;
 
   return (

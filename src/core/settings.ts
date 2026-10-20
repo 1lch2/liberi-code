@@ -5,23 +5,14 @@ import { createHash, randomUUID } from 'node:crypto';
 import { PROVIDERS } from './provider';
 import type { ModelInfo } from '../types';
 
-const LEGACY_PROVIDER_IDS: Record<string, string> = {
-  'minimax-api': 'minimax-cn',
-  'minimax-token-plan': 'minimax-cn-coding-plan',
-  'glm-api': 'zhipuai',
-  'glm-token-plan': 'zhipuai-coding-plan',
-  'mimo-api': 'xiaomi',
-  'mimo-token-plan': 'xiaomi-token-plan-cn',
-  'kimi-api': 'moonshotai-cn',
-  'kimi-coding-plan': 'kimi-code-plan-cn',
-};
-
 /** Agent 工具的工作区限制模式。 */
-export type PermissionMode = 'workspace-write' | 'full-access';
+export type PermissionMode = 'workspace-write' | 'auto-review' | 'read-only' | 'full-access';
 
 /** 权限审批模式对应的界面名称。 */
 export const PERMISSION_LABELS: Record<PermissionMode, string> = {
+  'read-only': '仅读取',
   'workspace-write': '工作区写入',
+  'auto-review': '自动审查',
   'full-access': '完全许可',
 };
 
@@ -38,6 +29,7 @@ export interface Settings {
   selectedProviderId?: string;
   connections: SavedConnection[];
   subagentModel?: string;
+  reviewModel?: string;
   permission: PermissionMode;
 }
 
@@ -79,18 +71,10 @@ export async function loadSettings(file = SETTINGS_FILE): Promise<Settings> {
       !Array.isArray(data.connections) ||
       (data.selectedProviderId !== undefined && typeof data.selectedProviderId !== 'string') ||
       (data.subagentModel !== undefined && typeof data.subagentModel !== 'string') ||
-      (data.permission !== undefined &&
-        !['workspace-write', 'full-access'].includes(data.permission))
+      (data.reviewModel !== undefined && typeof data.reviewModel !== 'string') ||
+      (data.permission !== undefined && !Object.hasOwn(PERMISSION_LABELS, data.permission))
     )
       throw new Error();
-    data.connections = data.connections.map(item => ({
-      ...item,
-      providerId: LEGACY_PROVIDER_IDS[item.providerId] ?? item.providerId,
-    }));
-    if (data.selectedProviderId !== undefined) {
-      data.selectedProviderId =
-        LEGACY_PROVIDER_IDS[data.selectedProviderId] ?? data.selectedProviderId;
-    }
     if (
       !data.connections.every(
         item =>

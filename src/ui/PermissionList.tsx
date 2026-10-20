@@ -5,6 +5,22 @@ import type { PermissionMode } from '../core/settings';
 import { useProviderSession } from '../hook/useProviderSession';
 import { List } from './List';
 
+/** 权限模式选择页面的展示顺序。 */
+const PERMISSION_MODES: readonly PermissionMode[] = [
+  'read-only',
+  'workspace-write',
+  'auto-review',
+  'full-access',
+];
+
+/** 权限模式对应的界面说明。 */
+const PERMISSION_COMMENTS: Record<PermissionMode, string> = {
+  'read-only': '仅允许读取文件和网页',
+  'workspace-write': '允许工作区内编辑和执行命令',
+  'auto-review': '使用审查模型自动判断许可（暂未实现）',
+  'full-access': '完全允许所有操作',
+};
+
 /** 权限模式选择页面的对话忙碌状态。 */
 export interface PermissionListProps {
   busy: boolean;
@@ -14,7 +30,7 @@ export interface PermissionListProps {
 export function PermissionList({ busy }: PermissionListProps) {
   const session = useProviderSession();
   const [selectedIndex, setSelectedIndex] = useState(
-    session.settings.permission === 'workspace-write' ? 0 : 1
+    Math.max(0, PERMISSION_MODES.indexOf(session.settings.permission))
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
@@ -42,10 +58,11 @@ export function PermissionList({ busy }: PermissionListProps) {
       <Text bold>权限审批模式</Text>
       <Text dimColor>↑↓ 选择 · Enter 保存 · Esc 返回</Text>
       <List
-        items={[
-          { id: 'workspace-write', label: PERMISSION_LABELS['workspace-write'] },
-          { id: 'full-access', label: PERMISSION_LABELS['full-access'] },
-        ]}
+        items={PERMISSION_MODES.map(mode => ({
+          id: mode,
+          label: PERMISSION_LABELS[mode],
+          comment: PERMISSION_COMMENTS[mode],
+        }))}
         selectedIndex={selectedIndex}
         onChange={setSelectedIndex}
         onSelect={item => {

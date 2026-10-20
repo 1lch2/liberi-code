@@ -119,7 +119,7 @@ features:
     doc: docs/features/providers.md
     entrypoints: [src/core/provider.ts, src/core/settings.ts, src/ui/ProviderList.tsx]
   - id: settings
-    name: Agent 设置、权限模式、统一配置文件与总结模型
+    name: Agent 设置、权限模式、统一配置文件与总结/审查模型
     keywords:
       [
         config,
@@ -128,8 +128,15 @@ features:
         settings.json,
         subagent model,
         subagentModel,
+        review model,
+        reviewModel,
+        命令权限审查,
         permission,
         workspace-write,
+        auto-review,
+        read-only,
+        自动审查,
+        仅读取,
         工作区写入,
         完全许可,
         设置,
@@ -169,7 +176,7 @@ features:
     doc: docs/features/terminal-ui.md
     entrypoints: [src/ui/App.tsx, src/core/commands.ts, src/hook/useCommands.ts]
   - id: file-tools
-    name: 文件读写、工作目录路径权限与用户目录例外
+    name: 文件读写、工作目录路径权限、只读限制与用户目录例外
     keywords:
       [
         file_read,
@@ -190,6 +197,8 @@ features:
         例外,
         文件,
         权限,
+        只读模式,
+        read-only,
         realpath,
         工作目录,
       ]
@@ -202,7 +211,7 @@ features:
         src/hook/usePathValidation.ts,
       ]
   - id: terminal-tool
-    name: Shell 命令执行与 PowerShell、Bash 路径检查
+    name: Shell 命令执行、路径检查与只读命令限制
     keywords:
       [
         terminal_run,
@@ -220,6 +229,8 @@ features:
         通配符,
         重定向,
         符号链接,
+        只读命令,
+        read-only,
       ]
     doc: docs/features/terminal-tool.md
     entrypoints:

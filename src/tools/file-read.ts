@@ -13,7 +13,7 @@ function isReadableUserDataPath(target: string): boolean {
   return resolve(target) !== resolve(USER_DATA_DIRECTORY, SETTINGS_FILENAME);
 }
 
-/** 按权限模式读取文件，并允许只读访问会话已注册的 SKILL.md 与用户目录内容。 */
+/** 按权限模式读取文件；工作区写入和自动审查模式额外允许已注册的 SKILL.md 与用户目录内容。 */
 export async function fileRead(
   args: Record<string, unknown>,
   cwd: string,
@@ -21,8 +21,13 @@ export async function fileRead(
   readableSkillPaths: readonly string[] = []
 ): Promise<string> {
   const target = resolvePath(String(args.path), cwd);
-  if (
-    permission === 'workspace-write' &&
+  // TODO: auto-review 暂未实现，当前与 workspace-write 共用读取路径与例外。
+  if (permission === 'read-only') {
+    if (!(await usePathValidation(target))) {
+      throw new Error(`权限不足：仅读取模式只能读取当前工作区内的文件（${target}）。`);
+    }
+  } else if (
+    permission !== 'full-access' &&
     !readableSkillPaths.includes(resolve(target)) &&
     !isReadableUserDataPath(target) &&
     !(await usePathValidation(target))

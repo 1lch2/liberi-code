@@ -4,19 +4,20 @@ import type { ShellInfo } from '../shell';
 import { getPowerShellPaths } from './powershell-paths';
 import { getBashPaths } from './bash-paths';
 
-/** 独立检查 PowerShell 和 Bash 命令路径，CMD 与 sh 暂不检查。 */
+/** 独立检查 PowerShell 和 Bash 命令路径，CMD 与 sh 暂不检查；只读模式额外要求命令可静态确认。 */
 export async function checkTerminalCommandPermission(
   command: string,
   cwd: string,
-  shell: ShellInfo
+  shell: ShellInfo,
+  readOnly = false
 ): Promise<boolean> {
-  if (shell.type !== 'powershell' && shell.type !== 'bash') return true;
+  if (shell.type !== 'powershell' && shell.type !== 'bash') return !readOnly;
   const root = await fs.realpath(cwd);
   const analysis =
     shell.type === 'powershell'
       ? { ...(await getPowerShellPaths(command, cwd, shell.path)), recursivePaths: [] }
       : await getBashPaths(command, cwd, shell.path);
-  if (!analysis.valid) return false;
+  if (!analysis.valid || (readOnly && !analysis.readOnly)) return false;
   const resolveTarget = (target: string) =>
     path.isAbsolute(target) ? target : `${cwd}${path.sep}${target}`;
   for (const target of analysis.paths) {

@@ -12,8 +12,12 @@ export async function fileWrite(
   permission: PermissionMode = 'workspace-write'
 ): Promise<string> {
   const target = resolvePath(String(args.path), cwd);
+  // TODO: auto-review 暂未实现，当前与 workspace-write 共用写入路径检查。
+  if (permission === 'read-only') {
+    throw new Error(`权限不足：仅读取模式禁止写入文件（${target}）。`);
+  }
   if (
-    permission === 'workspace-write' &&
+    permission !== 'full-access' &&
     !isInsideDirectory(target, TMP_DIRECTORY) &&
     !(await usePathValidation(target))
   ) {

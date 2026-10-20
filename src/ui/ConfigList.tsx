@@ -26,6 +26,12 @@ export function ConfigList() {
             value: session.settings.subagentModel ?? '未设置',
           },
           {
+            id: 'review-model',
+            label: 'review model',
+            comment: '用于审查命令权限的模型（暂未实现）',
+            value: session.settings.reviewModel ?? '未设置',
+          },
+          {
             id: 'permission',
             label: 'permission',
             comment: 'agent 权限审批模式',
@@ -36,11 +42,12 @@ export function ConfigList() {
         onChange={setSelectedIndex}
         onSelect={item => {
           if (item.id === 'permission') session.openPermissions();
+          else if (item.id === 'review-model') session.openReviewModels();
           else session.openSubagentModels();
         }}
         active={!session.loadingConfig}
       />
-      <Text dimColor>subagent model 用于上下文总结，从当前 Provider 的模型清单选择。</Text>
+      <Text dimColor>模型均从当前 Provider 的模型清单选择。</Text>
       {session.loadingConfig && <Text dimColor>正在读取本地配置...</Text>}
       {session.error && <Text color="red">{session.error}</Text>}
     </Box>
